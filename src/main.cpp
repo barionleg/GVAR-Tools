@@ -10,6 +10,7 @@
 #include "derand.h"
 #include "imagebuilder.h"
 #include "simpledeframer.h"
+#include "header.h"
 
 #define BUFFER_SIZE 1024
 #define FRAME_SIZE_BITS 209200
@@ -19,7 +20,7 @@ bool decodeFile(std::string filename, bool debug, std::string prefix, bool resiz
 size_t get_filesize(std::string filename);
 
 static struct {
-    std::string name[22];
+    std::string name[21];
 } productID = {{
     "No Data",
     "AAA IR Data",
@@ -41,8 +42,7 @@ static struct {
     "GVAR Visible NLUTs",
     "GVAR Star Sense Data",
     "GVAR Imager Factory Coefficients",
-    "Unassigned",
-    "Invalid Product ID"
+    "Unassigned"
 }};
 
 int main(int argc, char **argv) {
@@ -114,47 +114,36 @@ bool decodeFile(std::string filename, bool debug, std::string prefix, bool resiz
 
         derand.work(frame);
 
-        // BEGIN: header parsing
-        uint8_t block = frame[8];
-        if(block == 254) block = 0;
-        if(block > 11 && block != 15) block = 0;
+        // 8 byte offset due to header
+        HeaderParser parser(8);
+        Header header = parser.parse(frame);
 
-        uint8_t wordSize = frame[9];
-        if(wordSize != 6 && wordSize != 8 && wordSize != 10) wordSize = 0;
-
-        uint16_t product    = ((uint16_t)frame[12] << 8) | frame[13];
-        if(product > 1000) product = 22;
-        if(product > 20) product = 21;
-
-        uint16_t IFRAM      = ((uint16_t)frame[105] << 8) | frame[106];
+        uint16_t IFRAM = ((uint16_t)frame[105] << 8) | frame[106];
         IFRAM /= 4;
-
-        uint16_t wordCount  = ((uint16_t)frame[10] << 8) | frame[11];
-        uint16_t blockCount = ((uint16_t)frame[20] << 8) | frame[21];
-        // END: header parsing
 
         // These could of been done with std::cout but would become messy quickly
         if(debug){
             printf("Block ID: %3i, Product ID: %2i, Block count: %5i, Word count: %5i, Word size: %2i, Frame counter: %3i\r\n",
-                block,
-                product,
-                blockCount,
-                wordCount,
-                wordSize,
+                header.BlockID,
+                header.ProductID,
+                header.BlockCount,
+                header.WordCount,
+                header.WordSize,
                 IFRAM
             );
         }else{
-            printf("\rProgress: %4.1f%%, Frame counter: %5i, Total (good) frames: %5i, Product: %-32s",
+            printf("\rProgress: %5.1f%%, Frame counter: %5i, Total (good) frames: %5i, Time: %.24s, Product: %-32s",
                 (float)data_in.tellg() / (float)filesize * 100.0f,
-                blockCount,
+                header.BlockCount,
                 frames,
-                productID.name[product].c_str()
+                ctime(&header.SPSTime),
+                productID.name[header.ProductID < 21 ? header.ProductID : 21].c_str()
             );
             fflush(stdout);
         }
 
         // Channels 1 and 2
-        if(block == 1){
+        if(header.BlockID == 1){
             if(IFRAM - lastIFRAM[0] > 1 && IFRAM - lastIFRAM[0] < 5 && lastIFRAM[0] != 63 && lastIFRAM[0] != 0){
                 // Multiply by two since there are 2 lines per frame
                 channels[0].cloneLastRow((IFRAM - lastIFRAM[0] - 1) * 2);
@@ -169,7 +158,7 @@ bool decodeFile(std::string filename, bool debug, std::string prefix, bool resiz
 
             lastIFRAM[0] = IFRAM;
         // Channels 3 and 4
-        }else if(block == 2){
+        }else if(header.BlockID == 2){
             if(IFRAM - lastIFRAM[1] > 1 && IFRAM - lastIFRAM[1] < 5 && lastIFRAM[1] != 63 && lastIFRAM[1] != 0){
                 // Multiply by two since there are 2 lines per frame
                 channels[2].cloneLastRow((IFRAM - lastIFRAM[1] - 1) * 2);
@@ -184,7 +173,7 @@ bool decodeFile(std::string filename, bool debug, std::string prefix, bool resiz
 
             lastIFRAM[1] = IFRAM;
         // Channel 5 (aka thicc boi)
-        }else if(block >= 3 && block <= 10){
+        }else if(header.BlockID >= 3 && header.BlockID <= 10){
             if(IFRAM - lastIFRAM[2] > 1 && IFRAM - lastIFRAM[2] < 5 && lastIFRAM[2] != 63 && lastIFRAM[2] != 0){
                 channels[4].cloneLastRow(IFRAM - lastIFRAM[2] - 1);
             }
@@ -204,7 +193,7 @@ bool decodeFile(std::string filename, bool debug, std::string prefix, bool resiz
     }
 
     for(int ch = 0; ch < 5; ch++) {
-        std::cout << "Writing channel..." << ch+1 << std::endl;
+        std::cout << "Writing channel " << ch+1 << "..." << std::endl;
         channels[ch].saveImage(prefix + "-" + std::to_string(ch+1) + ".png", resize);
     }
 

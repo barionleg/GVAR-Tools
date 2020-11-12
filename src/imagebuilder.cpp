@@ -1,7 +1,5 @@
 #include "imagebuilder.h"
 
-#include <iostream>
-
 #define cimg_use_png
 #define cimg_display 0
 #include "CImg.h"
@@ -12,7 +10,6 @@ ImageBuilder::ImageBuilder(int width, int maxRows){
     rows = 0;
     rowBuffer = new uint16_t[width];
     imageBuffer = new unsigned short[width * maxRows];
-    //imageBuffer = (uint16_t *)std:malloc(width);
 }
 ImageBuilder::~ImageBuilder(){
     delete[] rowBuffer;
@@ -50,7 +47,6 @@ void ImageBuilder::unpack10(uint8_t *in, int len, uint16_t *out) {
 
 void ImageBuilder::pushRow(uint8_t *in, int len, int shift){
     int posb = 3, x = shift;
-    //std::memset(rowBuffer, 0, width*2);
     for(int pos = 0; pos < len; pos += 5) {
         uint8_t shiftBuf[5] = { 0 };
         shiftBuf[0] = in[pos + 0] << posb | in[pos + 1] >> (8 - posb);
