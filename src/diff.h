@@ -10,9 +10,6 @@
 
 #include <cstdint>
 
-class DifferentialEncoding {
-    public:
-        static void nrzsDecode(uint8_t *data, int length);
-};
+void nrzsDecode(uint8_t *data, int length);
 
 #endif

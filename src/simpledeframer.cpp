@@ -124,5 +124,5 @@ std::vector<std::vector<uint8_t>> SimpleDeframer<SYNC_T, SYNC_SIZE, FRAME_SIZE, 
     return framesOut;
 }
 
-// Build this template for GVAR data
+// Build this template for GVAR
 template class SimpleDeframer<uint64_t, 64, 209200, 0b0001101111100111110100000001111110111111100000001111111111111110>;

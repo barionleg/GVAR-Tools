@@ -20,6 +20,16 @@ Header HeaderParser::parse(uint8_t *in) {
     header.SPSTime       =  ParseBCDTime(&in[offset + 17]);
     header.ErrorCheck    = Uint8ToUint16(&in[offset + 29]);
 
+    if(header.BlockID == 240) header.BlockID = 0;
+
+    if(header.ProductID <= 20) {
+        header.ProductName = ProductIDLookup.Name[header.ProductID];
+    } else if(header.ProductID <= 1000) {
+        header.ProductName = ProductIDLookup.Name[21];
+    } else {
+        header.ProductName = ProductIDLookup.Name[22];
+    }
+
     return header;
 }
 

@@ -19,32 +19,6 @@
 bool decodeFile(std::string filename, bool debug, std::string prefix, bool resize, bool despeckle);
 size_t get_filesize(std::string filename);
 
-static struct {
-    std::string name[21];
-} productID = {{
-    "No Data",
-    "AAA IR Data",
-    "AAA Visible Data",
-    "GVAR Imager Documentation", 
-    "GVAR Imager IR Data",
-    "GVAR Imager Visible Data",
-    "GVAR Sounder Documentation",
-    "GVAR Sounder Scan Data",
-    "GVAR Compensation Data",
-    "GVAR Telemetry Statistics",
-    "Not Used",
-    "GIMTACS Text",
-    "AAA Sounding Products",
-    "GVAR ECAL Data",
-    "GVAR Spacelook Data",
-    "GVAR BB Data",
-    "GVAR Calibration Coefficients",
-    "GVAR Visible NLUTs",
-    "GVAR Star Sense Data",
-    "GVAR Imager Factory Coefficients",
-    "Unassigned"
-}};
-
 int main(int argc, char **argv) {
     TCLAP::CmdLine cmd("GVAR tools - a set of (crappy) tools for dealing with GVAR data - image decoder", ' ', "0.1");
 
@@ -85,7 +59,6 @@ bool decodeFile(std::string filename, bool debug, std::string prefix, bool resiz
     uint8_t *buffer = new uint8_t[BUFFER_SIZE];
     uint8_t *frame = new uint8_t[FRAME_SIZE_BYTES];
 
-    DifferentialEncoding diffDecoder;
     SimpleDeframer<uint64_t, 64, FRAME_SIZE_BITS, 0b0001101111100111110100000001111110111111100000001111111111111110> deframer;
     GVARDerandomizer derand(FRAME_SIZE_BITS, 8, 0b101001110110101);
 
@@ -104,7 +77,7 @@ bool decodeFile(std::string filename, bool debug, std::string prefix, bool resiz
     while (!data_in.eof()) {
         data_in.read((char *)buffer, BUFFER_SIZE);
 
-        diffDecoder.nrzsDecode(buffer, BUFFER_SIZE);
+        nrzsDecode(buffer, BUFFER_SIZE);
 
         // Deframe
         // TODO: change output to write directly to a uint8_t pointer
@@ -118,12 +91,11 @@ bool decodeFile(std::string filename, bool debug, std::string prefix, bool resiz
         HeaderParser parser(8);
         Header header = parser.parse(frame);
 
-        uint16_t IFRAM = ((uint16_t)frame[105] << 8) | frame[106];
-        IFRAM /= 4;
+        uint16_t IFRAM = frame[105] << 6 | frame[106] >> 2;
 
         // These could of been done with std::cout but would become messy quickly
         if(debug){
-            printf("Block ID: %3i, Product ID: %2i, Block count: %5i, Word count: %5i, Word size: %2i, Frame counter: %3i\r\n",
+            printf("Block ID: %2i, Product ID: %5i, Block count: %5i, Word count: %5i, Word size: %3i, Frame counter: %3i\r\n",
                 header.BlockID,
                 header.ProductID,
                 header.BlockCount,
@@ -137,14 +109,14 @@ bool decodeFile(std::string filename, bool debug, std::string prefix, bool resiz
                 header.BlockCount,
                 frames,
                 ctime(&header.SPSTime),
-                productID.name[header.ProductID < 21 ? header.ProductID : 21].c_str()
+                header.ProductName.c_str()
             );
             fflush(stdout);
         }
 
         // Channels 1 and 2
         if(header.BlockID == 1){
-            if(IFRAM - lastIFRAM[0] > 1 && IFRAM - lastIFRAM[0] < 5 && lastIFRAM[0] != 63 && lastIFRAM[0] != 0){
+            if(IFRAM - lastIFRAM[0] == 2){
                 // Multiply by two since there are 2 lines per frame
                 channels[0].cloneLastRow((IFRAM - lastIFRAM[0] - 1) * 2);
                 channels[1].cloneLastRow((IFRAM - lastIFRAM[0] - 1) * 2);
@@ -159,7 +131,7 @@ bool decodeFile(std::string filename, bool debug, std::string prefix, bool resiz
             lastIFRAM[0] = IFRAM;
         // Channels 3 and 4
         }else if(header.BlockID == 2){
-            if(IFRAM - lastIFRAM[1] > 1 && IFRAM - lastIFRAM[1] < 5 && lastIFRAM[1] != 63 && lastIFRAM[1] != 0){
+            if(IFRAM - lastIFRAM[1] == 2){
                 // Multiply by two since there are 2 lines per frame
                 channels[2].cloneLastRow((IFRAM - lastIFRAM[1] - 1) * 2);
                 channels[3].cloneLastRow((IFRAM - lastIFRAM[1] - 1) * 2);
@@ -174,7 +146,7 @@ bool decodeFile(std::string filename, bool debug, std::string prefix, bool resiz
             lastIFRAM[1] = IFRAM;
         // Channel 5 (aka thicc boi)
         }else if(header.BlockID >= 3 && header.BlockID <= 10){
-            if(IFRAM - lastIFRAM[2] > 1 && IFRAM - lastIFRAM[2] < 5 && lastIFRAM[2] != 63 && lastIFRAM[2] != 0){
+            if(IFRAM - lastIFRAM[2] == 2){
                 channels[4].cloneLastRow(IFRAM - lastIFRAM[2] - 1);
             }
 

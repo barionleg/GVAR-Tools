@@ -7,7 +7,7 @@
 
 #include "diff.h"
 
-void DifferentialEncoding::nrzsDecode(uint8_t *data, int length) {
+void nrzsDecode(uint8_t *data, int length) {
     uint8_t lastBit = 0;
     uint8_t mask;
     for (int i = 0; i < length; i++) {
