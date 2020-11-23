@@ -16,7 +16,7 @@ sudo make install
 
 ## Usage
 
-Included in this repo is a GNURadio script suitable for demodulation.
+Included in this repo is a GNURadio script suitable for demodulation, as well as one that live decodes from an airspy and sends data to 127.0.0.1:13615 (GOES-**13** **61**.**5**°) UDP.
 
 Once you have your bin file you can decode as easily as:
 
