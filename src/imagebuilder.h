@@ -13,6 +13,7 @@ class ImageBuilder {
         void saveImage(std::string filename, bool resize);
         void cloneLastRow(int ntimes);
         void despeckle();
+        void reset();
         int rows;
     private:
         int width;

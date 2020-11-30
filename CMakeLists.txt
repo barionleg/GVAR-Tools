@@ -8,11 +8,7 @@ add_executable(GVAR-Decoder ${CPP_SOURCE_FILES})
 
 target_include_directories(GVAR-Decoder PUBLIC src)
 
-if(CMAKE_BUILD_TYPE MATCHES "Release")
-    target_compile_options(GVAR-Decoder PRIVATE -Wall -Wextra -pedantic -Werror)
-else()
-    target_compile_options(GVAR-Decoder PRIVATE -Wall -Wextra -pedantic)
-endif()
+target_compile_options(GVAR-Decoder PRIVATE -Wall -Wextra -pedantic)
 
 target_link_libraries(GVAR-Decoder PUBLIC m)
 if(WIN32 AND NOT MINGW)

@@ -45,6 +45,11 @@ void ImageBuilder::unpack10(uint8_t *in, int len, uint16_t *out) {
     }
 }
 
+void ImageBuilder::reset() {
+    rows = 0;
+    std::memset(imageBuffer, 0, width * maxRows * 2);
+}
+
 void ImageBuilder::pushRow(uint8_t *in, int len, int shift){
     int posb = 3, x = shift;
     for(int pos = 0; pos < len; pos += 5) {

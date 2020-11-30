@@ -12,12 +12,26 @@
 #include "simpledeframer.h"
 #include "header.h"
 
+#include <sys/types.h>
+#include <arpa/inet.h>
+#include <sys/socket.h>
+#include <netinet/in.h>
+
 #define BUFFER_SIZE 1024
 #define FRAME_SIZE_BITS 209200
 #define FRAME_SIZE_BYTES (FRAME_SIZE_BITS/8)
 
-bool decodeFile(std::string filename, bool debug, std::string prefix, bool resize, bool despeckle);
+struct Options {
+    std::string filename;
+    bool udp;
+    bool debug;
+    bool resize;
+    bool despeckle;
+};
+
+bool decodeFile(Options *opts);
 size_t get_filesize(std::string filename);
+std::string stringTime(time_t *time);
 
 int main(int argc, char **argv) {
     TCLAP::CmdLine cmd("GVAR tools - a set of (crappy) tools for dealing with GVAR data - image decoder", ' ', "0.1");
@@ -30,8 +44,8 @@ int main(int argc, char **argv) {
     cmd.add(resizeSwitch);
     TCLAP::SwitchArg despeckleSwitch("s", "dont-despeckle", "Don't despeckle the channels", false);
     cmd.add(despeckleSwitch);
-    TCLAP::ValueArg<std::string> prefixValue("p", "prefix", "prefix of the output image filenames", false, "G13", "");
-    cmd.add(prefixValue);
+    TCLAP::SwitchArg udpSwitch("u", "udp", "Listen for data from port 13615/UDP", false);
+    cmd.add(udpSwitch);
 
     try{
         cmd.parse(argc, argv);
@@ -39,22 +53,39 @@ int main(int argc, char **argv) {
         std::cerr << "Error: " << e.error() << " for arg " << e.argId() << std::endl;
     }
 
-    if(!decodeFile(binPath.getValue(), debugSwitch.getValue(), prefixValue.getValue(), !resizeSwitch.getValue(), !despeckleSwitch.getValue())){
+    Options opts;
+    opts.filename = binPath.getValue();
+    opts.debug = debugSwitch.getValue();
+    opts.resize = !resizeSwitch.getValue();
+    opts.despeckle = !despeckleSwitch.getValue();
+    opts.udp = udpSwitch.getValue();
+
+    if(!decodeFile(&opts)){
         return 1;
     }
 
     return 0;
 }
 
-bool decodeFile(std::string filename, bool debug, std::string prefix, bool resize, bool despeckle){
-    std::ifstream data_in(filename, std::ios::binary);
+bool decodeFile(Options *opts){
+    std::ifstream data_in(opts->filename, std::ios::binary);
+    std::ofstream data_out("dump.bin", std::ios::binary);
 
     if(!data_in){
         std::cout << "Error: could not open input file" << std::endl;
         return false;
     }
 
-    size_t filesize = get_filesize(filename);
+    int listenSock = socket(AF_INET, SOCK_DGRAM, 0);
+    struct sockaddr_in serverAddr;
+    if(opts->udp){
+        serverAddr.sin_addr.s_addr = htonl(INADDR_ANY);
+        serverAddr.sin_port = htons(13615);
+        serverAddr.sin_family = AF_INET;
+        bind(listenSock, (const struct sockaddr*)&serverAddr, sizeof(serverAddr));
+    }
+
+    size_t filesize = get_filesize(opts->filename);
 
     uint8_t *buffer = new uint8_t[BUFFER_SIZE];
     uint8_t *frame = new uint8_t[FRAME_SIZE_BYTES];
@@ -64,28 +95,34 @@ bool decodeFile(std::string filename, bool debug, std::string prefix, bool resiz
 
     // Image builders
     ImageBuilder channels[5] = {
-        ImageBuilder(5000, 6000),
-        ImageBuilder(5000, 6000),
-        ImageBuilder(5000, 6000),
-        ImageBuilder(5000, 6000),
-        ImageBuilder(20000, 24000)
+        ImageBuilder(5000, 3000),
+        ImageBuilder(5000, 3000),
+        ImageBuilder(5000, 3000),
+        ImageBuilder(5000, 3000),
+        ImageBuilder(20000, 12000)
     };
 
     // Read until EOF
     unsigned int frames = 0;
     uint16_t lastIFRAM[3] = { 0 };
     while (!data_in.eof()) {
-        data_in.read((char *)buffer, BUFFER_SIZE);
+        if(opts->udp){
+            recvfrom(listenSock, buffer, BUFFER_SIZE, 0, NULL, NULL);
+        }else{
+            data_in.read((char *)buffer, BUFFER_SIZE);
+        }
 
         nrzsDecode(buffer, BUFFER_SIZE);
 
         // Deframe
         // TODO: change output to write directly to a uint8_t pointer
-        std::vector<std::vector<uint8_t>> deframedBuffer = deframer.work(buffer, 1024);
+        std::vector<std::vector<uint8_t>> deframedBuffer = deframer.work(buffer, BUFFER_SIZE);
         if(deframedBuffer.size() == 0) continue;
         std::memcpy(frame, &deframedBuffer[0][0], deframedBuffer[0].size());
 
         derand.work(frame);
+
+        data_out.write((char *)frame, FRAME_SIZE_BYTES);
 
         // 8 byte offset due to header
         HeaderParser parser(8);
@@ -94,7 +131,7 @@ bool decodeFile(std::string filename, bool debug, std::string prefix, bool resiz
         uint16_t IFRAM = frame[105] << 6 | frame[106] >> 2;
 
         // These could of been done with std::cout but would become messy quickly
-        if(debug){
+        if(opts->debug){
             printf("Block ID: %2i, Product ID: %5i, Block count: %5i, Word count: %5i, Word size: %3i, Frame counter: %3i\r\n",
                 header.BlockID,
                 header.ProductID,
@@ -152,21 +189,36 @@ bool decodeFile(std::string filename, bool debug, std::string prefix, bool resiz
 
             channels[4].pushRow(&frame[120], 25000, 0);
 
+            // Write out a full disk image
+            std::cout << IFRAM << std::endl;
+            if((lastIFRAM[2] == 1352 && IFRAM == 1353) || channels[4].rows > 10825) {
+                std::cout << std::endl << "End of full disk image" << std::endl;
+                for(int ch = 0; ch < 5; ch++) {
+                    std::cout << "Writing channel " << ch+1 << "..." << std::endl;
+                    if(opts->despeckle){
+                        for(int ch = 0; ch < 5; ch++) channels[ch].despeckle();
+                    }
+                    channels[ch].saveImage(stringTime(&header.SPSTime) + "-" + std::to_string(ch+1) + ".png", opts->resize);
+                    channels[ch].reset();
+                }
+            }
+
             lastIFRAM[2] = IFRAM;
         }
         
         frames++;
     }
 
-    std::cout << std::endl << "Total frames: " << frames << std::endl;
-
-    if(despeckle){
-        for(int ch = 0; ch < 5; ch++) channels[ch].despeckle();
-    }
-
-    for(int ch = 0; ch < 5; ch++) {
-        std::cout << "Writing channel " << ch+1 << "..." << std::endl;
-        channels[ch].saveImage(prefix + "-" + std::to_string(ch+1) + ".png", resize);
+    // If theres a decent amount of image left (>400 lines) then write it out
+    if(lastIFRAM[2] > 50) {
+        for(int ch = 0; ch < 5; ch++) {
+            std::cout << "Writing channel " << ch+1 << "..." << std::endl;
+            if(opts->despeckle){
+                for(int ch = 0; ch < 5; ch++) channels[ch].despeckle();
+            }
+            channels[ch].saveImage("leftovers-" + std::to_string(ch+1) + ".png", opts->resize);
+            channels[ch].reset();
+        }
     }
 
     // Clean up
@@ -179,4 +231,13 @@ size_t get_filesize(std::string filename) {
     size_t filesize = in.tellg();
     in.close();
     return filesize;
+}
+
+std::string stringTime(time_t *time) {
+    char buff[20];
+    struct tm *timeinfo;
+    timeinfo = localtime (time);
+    // Something like 2020_11_21-08:41:11
+    strftime(buff, sizeof(buff), "%Y_%m_%d-%H:%M:%S", timeinfo);
+    return std::string(buff);
 }
