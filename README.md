@@ -1,5 +1,7 @@
 # GVAR Tools
 
+**THIS REPOSITORY IS ARCHIVED: no further development will take place.**
+
 GVAR tools - a set of (crappy) tools for dealing with GVAR data from GOES-13, currently only an image decoder.
 
 ## Installation
